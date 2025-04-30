@@ -1,6 +1,6 @@
 # Flight Delay Prediction - MLOps Project
 
-A comprehensive end-to-end MLOps project for predicting flight delays using historical aviation data from the AviationStack API.
+A comprehensive end-to-end MLOps project for predicting flight delays using historical aviation data from the [AviationStack API](https://aviationstack.com/documentation).
 
 ## Project Overview
 
@@ -19,8 +19,8 @@ The project is organized into the following stages:
 ### Stage 2: Data Processing and Feature Engineering
 - Data cleaning and preprocessing pipeline
 - Feature engineering for flight delay prediction
-- Data validation and quality checks
-- Feature store implementation
+- Data validation and quality checks with Great Expectations
+- Feature store implementation with Feast or Hopsworks
 
 ### Stage 3: Model Training and Versioning
 - Experiment tracking with MLflow
@@ -31,9 +31,9 @@ The project is organized into the following stages:
 
 ### Stage 4: Model Packaging and Serving
 - Model packaging with Docker
-- REST API for model serving
+- REST API for model serving with FastAPI
 - Real-time and batch prediction endpoints
-- Model A/B testing capabilities
+- Model A/B testing capabilities with BentoML
 
 ### Stage 5: CI/CD Pipeline
 - Automated testing
@@ -48,18 +48,44 @@ The project is organized into the following stages:
 - Secrets management
 
 ### Stage 7: Monitoring and Observability
-- Model performance monitoring
-- Data drift detection
+- Model performance monitoring with Prometheus/Grafana
+- Data drift detection with Evidently AI
 - System health metrics
 - Logging and alerting
 - Dashboards for visualization
+
+## MLOps Tools
+
+This project implements a comprehensive MLOps stack with the following tools:
+
+### Data Engineering & Pipeline Orchestration
+- **PostgreSQL**: Database for structured storage
+- **Docker**: Containerization of database and services
+- **Prefect/Airflow**: Workflow orchestration and scheduling
+- **DVC**: Data version control
+
+### Model Development & Experiment Tracking
+- **MLflow**: Track experiments, parameters, and metrics
+- **Weights & Biases** (alternative): Visual experiment tracking
+- **Great Expectations**: Data validation and quality checks
+
+### Model Serving & Deployment
+- **FastAPI**: API framework for model serving
+- **BentoML**: Model packaging and serving
+- **Kubernetes**: Orchestration for scaling components
+- **Terraform**: Infrastructure as code
+
+### Monitoring & Observability
+- **Prometheus/Grafana**: Metrics collection and visualization
+- **Evidently AI**: Model and data drift monitoring
+- **Seldon/KServe**: Advanced model serving
 
 ## Getting Started
 
 ### Prerequisites
 - Docker and Docker Compose
 - Python 3.10+
-- AviationStack API key
+- AviationStack API key (get it from [AviationStack](https://aviationstack.com/documentation))
 
 ### Setup
 
@@ -98,6 +124,10 @@ python scripts/ingest_data.py
 - [ ] CI/CD pipeline setup
 - [ ] Kubernetes deployment
 - [ ] Monitoring and observability
+
+## Data Source
+
+This project uses the [AviationStack API](https://aviationstack.com/documentation) to fetch real-time and historical flight data. The API provides comprehensive aviation data including flights, airlines, airports, and routes information.
 
 ## Contributing
 
