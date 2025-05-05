@@ -13,7 +13,7 @@ import time
 import json
 import logging
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional, Tuple
 
 import pandas as pd
@@ -186,7 +186,7 @@ def fetch_paginated_data(endpoint: str, date: Optional[str] = None, additional_p
     
     all_results = []
     offset = 0
-    limit = 100  # Maximum allowed for Basic Plan
+    limit = 1000  # Maximum allowed for Basic Plan
     
     # Prepare parameters
     params = {
@@ -427,176 +427,35 @@ def process_flights_data(flights_data: List[Dict[str, Any]], session) -> int:
     return processed_count
 
 
-
-# def process_flights_data(flights_data: List[Dict[str, Any]], session) -> int:
-#     """
-#     Process and store flights data in the database
-    
-#     Args:
-#         flights_data: List of flight records from API
-#         session: SQLAlchemy database session
-    
-#     Returns:
-#         int: Number of records processed
-#     """
-#     processed_count = 0
-    
-#     for flight_record in flights_data:
-#         try:
-#             # Extract flight data
-#             flight_date = flight_record.get("flight_date")
-#             flight_status = flight_record.get("flight_status")
-            
-#             # Extract airline info
-#             airline = flight_record.get("airline", {})
-#             airline_name = airline.get("name")
-#             airline_iata = airline.get("iata")
-#             airline_icao = airline.get("icao")
-            
-#             # Extract flight info
-#             flight_number = flight_record.get("flight", {}).get("number")
-#             flight_iata = flight_record.get("flight", {}).get("iata")
-#             flight_icao = flight_record.get("flight", {}).get("icao")
-#             codeshared = flight_record.get("flight", {}).get("codeshared")
-            
-#             # Extract aircraft info
-#             aircraft = flight_record.get("aircraft", {})
-#             aircraft_registration = aircraft.get("registration")
-#             aircraft_iata = aircraft.get("iata")
-#             aircraft_icao = aircraft.get("icao")
-#             aircraft_icao24 = aircraft.get("icao24")
-            
-#             # Extract departure info
-#             departure = flight_record.get("departure", {})
-#             departure_airport = departure.get("airport")
-#             departure_timezone = departure.get("timezone")
-#             departure_iata = departure.get("iata")
-#             departure_icao = departure.get("icao")
-#             departure_terminal = departure.get("terminal")
-#             departure_gate = departure.get("gate")
-#             departure_delay = departure.get("delay")
-#             departure_scheduled = departure.get("scheduled")
-#             departure_estimated = departure.get("estimated")
-#             departure_actual = departure.get("actual")
-#             departure_estimated_runway = departure.get("estimated_runway")
-#             departure_actual_runway = departure.get("actual_runway")
-            
-#             # Extract arrival info
-#             arrival = flight_record.get("arrival", {})
-#             arrival_airport = arrival.get("airport")
-#             arrival_timezone = arrival.get("timezone")
-#             arrival_iata = arrival.get("iata")
-#             arrival_icao = arrival.get("icao")
-#             arrival_terminal = arrival.get("terminal")
-#             arrival_gate = arrival.get("gate")
-#             arrival_baggage = arrival.get("baggage")
-#             arrival_delay = arrival.get("delay")
-#             arrival_scheduled = arrival.get("scheduled")
-#             arrival_estimated = arrival.get("estimated")
-#             arrival_actual = arrival.get("actual")
-#             arrival_estimated_runway = arrival.get("estimated_runway")
-#             arrival_actual_runway = arrival.get("actual_runway")
-            
-#             # Check for required fields
-#             if not all([flight_date, flight_status, airline_iata, departure_iata, arrival_iata]):
-#                 logger.warning(f"Missing required fields for flight: {flight_record}")
-#                 continue
-            
-#             # Prepare flight object that matches the model's column names
-#             flight = {
-#                 "flight_date": flight_date,
-#                 "flight_status": flight_status,
-                
-#                 # Airline info
-#                 "airline_name": airline_name,
-#                 "airline_iata": airline_iata,
-#                 "airline_icao": airline_icao,
-                
-#                 # Flight info
-#                 "flight_number": flight_number,
-#                 "flight_iata": flight_iata,
-#                 "flight_icao": flight_icao,
-#                 "codeshared": codeshared,
-                
-#                 # Aircraft info
-#                 "aircraft_registration": aircraft_registration,
-#                 "aircraft_iata": aircraft_iata, 
-#                 "aircraft_icao": aircraft_icao,
-#                 "aircraft_icao24": aircraft_icao24,
-                
-#                 # Departure info
-#                 "departure_airport": departure_airport,
-#                 "departure_timezone": departure_timezone,
-#                 "departure_iata": departure_iata,
-#                 "departure_icao": departure_icao,
-#                 "departure_terminal": departure_terminal,
-#                 "departure_gate": departure_gate,
-#                 "departure_delay": departure_delay,
-#                 "departure_scheduled": departure_scheduled,
-#                 "departure_estimated": departure_estimated,
-#                 "departure_actual": departure_actual,
-#                 "departure_estimated_runway": departure_estimated_runway,
-#                 "departure_actual_runway": departure_actual_runway,
-                
-#                 # Arrival info
-#                 "arrival_airport": arrival_airport,
-#                 "arrival_timezone": arrival_timezone,
-#                 "arrival_iata": arrival_iata,
-#                 "arrival_icao": arrival_icao,
-#                 "arrival_terminal": arrival_terminal,
-#                 "arrival_gate": arrival_gate,
-#                 "arrival_baggage": arrival_baggage,
-#                 "arrival_delay": arrival_delay,
-#                 "arrival_scheduled": arrival_scheduled,
-#                 "arrival_estimated": arrival_estimated,
-#                 "arrival_actual": arrival_actual,
-#                 "arrival_estimated_runway": arrival_estimated_runway,
-#                 "arrival_actual_runway": arrival_actual_runway,
-#                 "raw_payload": flight_record
-#             }
-            
-#             # Upsert flight data
-#             stmt = insert(Flight).values(**flight)
-#             stmt = stmt.on_conflict_do_update(
-#                 index_elements=["flight_date", "flight_iata", "departure_iata", "arrival_iata", "departure_scheduled"],
-#                 set_=flight
-#             )
-            
-#             session.execute(stmt)
-#             processed_count += 1
-            
-#         except Exception as e:
-#             logger.error(f"Error processing flight record: {str(e)}")
-    
-#     # Commit all changes
-#     session.commit()
-#     logger.info(f"Processed {processed_count} flight records")
-#     return processed_count
-
-
 def process_airlines_data(airlines_data: List[Dict[str, Any]], session) -> None:
     """
-    Process and store airlines data in the database
-    
+    Process and store airlines data in the database, using API's 'id' as PK
+
     Args:
         airlines_data: List of airline records from API
         session: SQLAlchemy database session
     """
+    processed_count = 0
+    skipped_count = 0
     for airline_record in airlines_data:
         try:
-            # Extract airline data
-            iata_code = airline_record.get("iata_code")
-            
-            # Skip if no IATA code (required as primary key)
-            if not iata_code:
-                logger.warning(f"Missing IATA code for airline: {airline_record}")
+            # Extract API's id field for use as primary key
+            api_id = airline_record.get("id")
+
+            # Skip if no API ID (required as primary key)
+            if not api_id:
+                logger.warning(f"Missing API 'id' field for airline record: {airline_record}")
+                skipped_count += 1
                 continue
-            
+
+            # Extract other airline data
+            iata_code = airline_record.get("iata_code") # Keep fetching this, now nullable
+
             # Prepare airline object that matches model column names
             airline = {
+                "id": api_id, # This is now the PK
                 "iata_code": iata_code,
-                "airline_id": airline_record.get("airline_id"),
-                "id": airline_record.get("id"),
+                "airline_id": airline_record.get("airline_id"), # API's other ID
                 "icao_code": airline_record.get("icao_code"),
                 "iata_prefix_accounting": airline_record.get("iata_prefix_accounting"),
                 "airline_name": airline_record.get("airline_name"),
@@ -611,22 +470,29 @@ def process_airlines_data(airlines_data: List[Dict[str, Any]], session) -> None:
                 "type": airline_record.get("type"),
                 "raw_payload": airline_record
             }
-            
-            # Upsert airline data
+
+            # Upsert airline data based on the new primary key 'id'
             stmt = insert(Airline).values(**airline)
             stmt = stmt.on_conflict_do_update(
-                index_elements=["iata_code"],
-                set_=airline
+                index_elements=["id"], # Use 'id' as the conflict target
+                set_=airline # Update all fields on conflict
             )
-            
+
             session.execute(stmt)
-            
+            processed_count += 1
+
         except Exception as e:
-            logger.error(f"Error processing airline record: {str(e)}")
-    
-    # Commit all changes
-    session.commit()
-    logger.info(f"Processed {len(airlines_data)} airline records")
+            logger.error(f"Error processing airline record with API ID {api_id}: {str(e)}", exc_info=True)
+            # Depending on the error, you might want to rollback the specific record or the whole batch
+            # For now, we let the outer loop handle batch commit/rollback
+
+    # Commit all changes for the batch
+    try:
+        session.commit()
+        logger.info(f"Processed {processed_count} airline records (skipped {skipped_count} due to missing API ID).")
+    except Exception as e:
+        logger.error(f"Error committing airlines batch: {str(e)}", exc_info=True)
+        session.rollback() # Rollback the transaction on commit error
 
 
 def process_airports_data(airports_data: List[Dict[str, Any]], session) -> None:
@@ -683,96 +549,103 @@ def process_airports_data(airports_data: List[Dict[str, Any]], session) -> None:
 
 def process_routes_data(routes_data: List[Dict[str, Any]], session) -> None:
     """
-    Process and store routes data in the database
-    
+    Process and store routes data in the database, including date_pulled
+
     Args:
         routes_data: List of route records from API
         session: SQLAlchemy database session
     """
     processed_count = 0
-    
+    skipped_count = 0
+    # Get the current time ONCE for the entire batch, using UTC
+    pulled_timestamp = datetime.now(timezone.utc)
+
     for route_record in routes_data:
         try:
             # Extract route data
-            airline_iata = route_record.get("airline", {}).get("iata")
-            flight_number = route_record.get("flight", {}).get("number")
-            departure_iata = route_record.get("departure", {}).get("iata")
-            arrival_iata = route_record.get("arrival", {}).get("iata")
-            
-            # Skip if essential fields are missing
+            airline_data = route_record.get("airline") or {}
+            flight_data = route_record.get("flight") or {}
+            departure_data = route_record.get("departure") or {}
+            arrival_data = route_record.get("arrival") or {}
+
+            airline_iata = airline_data.get("iata")
+            flight_number = flight_data.get("number")
+            departure_iata = departure_data.get("iata")
+            arrival_iata = arrival_data.get("iata")
+
+            # Skip if essential fields for the unique constraint are missing
             if not all([airline_iata, flight_number, departure_iata, arrival_iata]):
-                logger.warning(f"Missing required fields for route: {route_record}")
+                logger.warning(f"Missing required fields (airline_iata, flight_number, dep_iata, arr_iata) for route: {route_record}")
+                skipped_count += 1
                 continue
-            
+
             # Extract more details
-            # Departure info
-            departure = route_record.get("departure", {})
-            departure_airport = departure.get("airport")
-            departure_timezone = departure.get("timezone")
-            departure_icao = departure.get("icao")
-            departure_terminal = departure.get("terminal")
-            departure_time = departure.get("time")
-            
-            # Arrival info
-            arrival = route_record.get("arrival", {})
-            arrival_airport = arrival.get("airport")
-            arrival_timezone = arrival.get("timezone")
-            arrival_icao = arrival.get("icao")
-            arrival_terminal = arrival.get("terminal")
-            arrival_time = arrival.get("time")
-            
-            # Airline info
-            airline = route_record.get("airline", {})
-            airline_name = airline.get("name")
-            airline_callsign = airline.get("callsign")
-            airline_icao = airline.get("icao")
-            
+            departure_airport = departure_data.get("airport")
+            departure_timezone = departure_data.get("timezone")
+            departure_icao = departure_data.get("icao")
+            departure_terminal = departure_data.get("terminal")
+            departure_time = departure_data.get("time")
+
+            arrival_airport = arrival_data.get("airport")
+            arrival_timezone = arrival_data.get("timezone")
+            arrival_icao = arrival_data.get("icao")
+            arrival_terminal = arrival_data.get("terminal")
+            arrival_time = arrival_data.get("time")
+
+            airline_name = airline_data.get("name")
+            airline_callsign = airline_data.get("callsign")
+            airline_icao = airline_data.get("icao")
+
             # Prepare route object that matches model column names
             route = {
                 "airline_iata": airline_iata,
                 "flight_number": flight_number,
                 "departure_iata": departure_iata,
                 "arrival_iata": arrival_iata,
-                
-                # Departure info
+
                 "departure_airport": departure_airport,
                 "departure_timezone": departure_timezone,
                 "departure_icao": departure_icao,
                 "departure_terminal": departure_terminal,
                 "departure_time": departure_time,
-                
-                # Arrival info
+
                 "arrival_airport": arrival_airport,
                 "arrival_timezone": arrival_timezone,
                 "arrival_icao": arrival_icao,
                 "arrival_terminal": arrival_terminal,
                 "arrival_time": arrival_time,
-                
-                # Airline info
+
                 "airline_name": airline_name,
                 "airline_callsign": airline_callsign,
                 "airline_icao": airline_icao,
-                
-                # Store the complete response
-                "raw_payload": route_record
+
+                "raw_payload": route_record,
+                "date_pulled": pulled_timestamp # Add the timestamp here
             }
-            
+
             # Upsert route data
             stmt = insert(Route).values(**route)
+            # Ensure index elements match the unique constraint in the model
             stmt = stmt.on_conflict_do_update(
                 index_elements=["airline_iata", "flight_number", "departure_iata", "arrival_iata"],
-                set_=route
+                set_=route # Update all fields on conflict, including date_pulled
             )
-            
+
             session.execute(stmt)
             processed_count += 1
-            
+
         except Exception as e:
-            logger.error(f"Error processing route record: {str(e)}")
-    
-    # Commit all changes
-    session.commit()
-    logger.info(f"Processed {processed_count} route records")
+            # Identify the route if possible for better error logging
+            ident_str = f"{airline_iata or '-'}{flight_number or '-'}:{departure_iata or '-'}->{arrival_iata or '-'}"
+            logger.error(f"Error processing route record ({ident_str}): {str(e)}", exc_info=True)
+
+    # Commit all changes for the batch
+    try:
+        session.commit()
+        logger.info(f"Processed {processed_count} route records (skipped {skipped_count} due to missing key fields).")
+    except Exception as e:
+        logger.error(f"Error committing routes batch: {str(e)}", exc_info=True)
+        session.rollback()
 
 
 def process_available_historical_data(fetch_supporting_data: bool = True) -> None:

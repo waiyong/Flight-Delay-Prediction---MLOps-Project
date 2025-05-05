@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, Float, Boolean, UniqueConstraint, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import func 
 
 
 Base = declarative_base()
@@ -13,7 +14,7 @@ class Flight(Base):
 
     # Flight info
     flight_date          = Column(Date, nullable=False)  
-    flight_status        = Column(String(20), nullable=False)  # scheduled, active, landed, cancelled, incident, diverted
+    flight_status        = Column(String(50), nullable=False)  # scheduled, active, landed, cancelled, incident, diverted
     # Departure info
     departure_airport    = Column(String(255), nullable=True)
     departure_timezone   = Column(String(50), nullable=True)
@@ -70,20 +71,23 @@ class Flight(Base):
 class Airline(Base):
     __tablename__ = "airlines"
     
-    # Primary key
-    iata_code            = Column(String(8), primary_key=True)
+    # Primary key - Changed from iata_code to API's id field
+    id                   = Column(String(10), primary_key=True)  # Another ID field in the response, now PK
     
+    # Original primary key, now just a regular column (can be null)
+    iata_code            = Column(String(8), nullable=True)
+
     # Identifier fields
     airline_id           = Column(String(10), nullable=True)  # API-specific ID
-    id                   = Column(String(10), nullable=True)  # Another ID field in the response
+    # id                   = Column(String(10), nullable=True)  # Removed this duplicate definition
     icao_code            = Column(String(8), nullable=True)
     iata_prefix_accounting = Column(String(10), nullable=True)
     
     # Airline details
-    airline_name         = Column(String(100), nullable=True)
+    airline_name         = Column(String(200), nullable=True)
     callsign             = Column(String(50), nullable=True)
     country_name         = Column(String(100), nullable=True)
-    country_iso2         = Column(String(2), nullable=True)
+    country_iso2         = Column(String(10), nullable=True)
     date_founded         = Column(Integer, nullable=True)  # Year as integer
     hub_code             = Column(String(8), nullable=True)  # Airport IATA code
     
@@ -92,11 +96,17 @@ class Airline(Base):
     fleet_average_age    = Column(Float, nullable=True)
     
     # Status information
-    status               = Column(String(20), nullable=True)  # e.g., "active"
-    type                 = Column(String(20), nullable=True)  # e.g., "scheduled"
+    status               = Column(String(50), nullable=True) 
+    type                 = Column(String(50), nullable=True)  
     
     # Store the complete JSON response
     raw_payload          = Column(JSONB, nullable=True)
+
+    # Optionally add unique constraints if needed for iata_code/icao_code where they exist
+    # __table_args__ = (
+    #     UniqueConstraint('iata_code', name='uq_airline_iata_code'),
+    #     UniqueConstraint('icao_code', name='uq_airline_icao_code'),
+    # )
 
 class Airport(Base):
     __tablename__ = "airports"
@@ -105,7 +115,7 @@ class Airport(Base):
     iata_code            = Column(String(8), primary_key=True)
     
     # Airport details
-    airport_name         = Column(String(100), nullable=True)
+    airport_name         = Column(String(200), nullable=True)
     icao_code            = Column(String(8), nullable=True)
     
     # Location information
@@ -114,16 +124,16 @@ class Airport(Base):
     geoname_id           = Column(String(10), nullable=True)
     
     # Regional information
-    city_iata_code       = Column(String(4), nullable=True)
+    city_iata_code       = Column(String(8), nullable=True)
     country_name         = Column(String(100), nullable=True)
-    country_iso2         = Column(String(2), nullable=True)
+    country_iso2         = Column(String(10), nullable=True)
     
     # Time information
     timezone             = Column(String(50), nullable=True)
     gmt                  = Column(String(10), nullable=True)  # GMT offset
     
     # Contact information
-    phone_number         = Column(String(20), nullable=True)
+    phone_number         = Column(String(50), nullable=True)
     
     # Store the complete JSON response
     raw_payload          = Column(JSONB, nullable=True)
@@ -141,26 +151,29 @@ class Route(Base):
     arrival_iata         = Column(String(4), nullable=True)
     
     # Departure info
-    departure_airport    = Column(String(100), nullable=True)
+    departure_airport    = Column(String(200), nullable=True)
     departure_timezone   = Column(String(50), nullable=True)
     departure_icao       = Column(String(8), nullable=True)
-    departure_terminal   = Column(String(10), nullable=True)
+    departure_terminal   = Column(String(50), nullable=True)
     departure_time       = Column(String(8), nullable=True)
     
     # Arrival info
-    arrival_airport      = Column(String(100), nullable=True)
+    arrival_airport      = Column(String(200), nullable=True)
     arrival_timezone     = Column(String(50), nullable=True)
     arrival_icao         = Column(String(8), nullable=True)
-    arrival_terminal     = Column(String(10), nullable=True)
+    arrival_terminal     = Column(String(50), nullable=True)
     arrival_time         = Column(String(8), nullable=True)
     
     # Airline info
-    airline_name         = Column(String(100), nullable=True)
+    airline_name         = Column(String(200), nullable=True)
     airline_callsign     = Column(String(50), nullable=True)
     airline_icao         = Column(String(8), nullable=True)
     
     # Store the complete JSON response
     raw_payload          = Column(JSONB, nullable=True)
+
+    # Add a column to store when the record was pulled/updated
+    date_pulled = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     
     # Create a unique constraint on the natural key components
     __table_args__ = (

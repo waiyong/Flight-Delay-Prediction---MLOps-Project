@@ -12,5 +12,15 @@ services:
     ports:
       - "5432:5432"
 
+
+  adminer:
+    image: adminer
+    container_name: flight_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
 volumes:
   pgdata:
