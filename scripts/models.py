@@ -58,6 +58,9 @@ class Flight(Base):
     aircraft_icao        = Column(String(10), nullable=True)
     aircraft_icao24      = Column(String(10), nullable=True)
 
+    # Add the raw_payload column
+    raw_payload          = Column(JSONB, nullable=True) # Allow null initially if needed, or set nullable=False
+
     # Add UNIQUE constraint
     __table_args__ = (
         UniqueConstraint('flight_date', 'flight_iata', 'departure_iata', 'arrival_iata', 
@@ -93,7 +96,7 @@ class Airline(Base):
     type                 = Column(String(20), nullable=True)  # e.g., "scheduled"
     
     # Store the complete JSON response
-    raw_payload          = Column(JSONB, nullable=False)
+    raw_payload          = Column(JSONB, nullable=True)
 
 class Airport(Base):
     __tablename__ = "airports"
@@ -123,7 +126,7 @@ class Airport(Base):
     phone_number         = Column(String(20), nullable=True)
     
     # Store the complete JSON response
-    raw_payload          = Column(JSONB, nullable=False)
+    raw_payload          = Column(JSONB, nullable=True)
 
 class Route(Base):
     __tablename__ = "routes"
@@ -157,7 +160,7 @@ class Route(Base):
     airline_icao         = Column(String(8), nullable=True)
     
     # Store the complete JSON response
-    raw_payload          = Column(JSONB, nullable=False)
+    raw_payload          = Column(JSONB, nullable=True)
     
     # Create a unique constraint on the natural key components
     __table_args__ = (

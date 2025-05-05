@@ -10,8 +10,123 @@ AviationStack API has the following constraints:
 - Maximum of 100 results per API call (Basic Plan)
 - Maximum of 1000 results per API call (Professional Plan and above)
 - Default limit is 100 results
+- Historical data limited to the last 3 months only
 
 To overcome these limitations and pull comprehensive flight data, we implement a paginated data fetching strategy.
+
+## Processing Workflow for AviationStack APIs
+
+AviationStack provides four main APIs that we use in this project. Each has distinct characteristics and processing requirements:
+
+### API Endpoint Comparison
+
+| API Endpoint | Historical Data | Update Frequency | Primary Key | Data Volume | Key Parameters |
+|--------------|----------------|------------------|-------------|-------------|----------------|
+| `/flights`   | Yes (3 months) | Real-time        | Composite   | Very High   | flight_date, flight_status |
+| `/airlines`  | No             | Rarely changes   | iata_code   | Low         | None (reference data) |
+| `/airports`  | No             | Rarely changes   | iata_code   | Low         | None (reference data) |
+| `/routes`    | No             | Occasionally     | Composite   | Medium      | airline_iata, dep_iata, arr_iata |
+
+### Processing Sequence
+
+The optimal processing sequence accounts for dependencies between data types:
+
+1. **Reference Data** (Airlines & Airports):
+   - Process first as they change infrequently
+   - Serve as lookups for flight and route data
+   - No date filtering required
+
+2. **Routes Data**:
+   - Process after reference data
+   - Provides context for flight patterns
+   - No date filtering required
+
+3. **Flight Data**:
+   - Process last, with date-based processing
+   - Highest volume that requires pagination
+   - Must operate within 3-month historical window
+
+### Step-by-Step Process by API
+
+#### 1. Airlines API Process
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
+│ Fetch with  │     │ Extract IATA │     │ Transform   │     │ Upsert to  │
+│ Pagination  │ ──► │ Codes & Info │ ──► │ Attributes  │ ──► │ airlines   │
+└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
+```
+
+1. **Fetch**: Call `/airlines` endpoint with pagination until all records retrieved
+2. **Extract**: Process airline records, ensuring IATA code (primary key) exists
+3. **Transform**: Map API fields to database schema
+4. **Load**: Upsert to `airlines` table with conflict resolution on iata_code
+
+#### 2. Airports API Process
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
+│ Fetch with  │     │ Extract IATA │     │ Transform   │     │ Upsert to  │
+│ Pagination  │ ──► │ Codes & Info │ ──► │ Attributes  │ ──► │ airports   │
+└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
+```
+
+1. **Fetch**: Call `/airports` endpoint with pagination until all records retrieved
+2. **Extract**: Process airport records, ensuring IATA code (primary key) exists
+3. **Transform**: Map API fields to database schema, including geo coordinates
+4. **Load**: Upsert to `airports` table with conflict resolution on iata_code
+
+#### 3. Routes API Process
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
+│ Fetch with  │     │ Validate     │     │ Transform   │     │ Upsert to  │
+│ Pagination  │ ──► │ IATA Codes   │ ──► │ Attributes  │ ──► │ routes     │
+└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
+```
+
+1. **Fetch**: Call `/routes` endpoint with pagination until all records retrieved
+2. **Validate**: Ensure airline, departure, and arrival IATA codes exist
+3. **Transform**: Map API fields to database schema
+4. **Load**: Upsert to `routes` table with composite key conflict resolution
+
+#### 4. Flights API Process (Date-Based)
+
+```
+┌─────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│ Validate│     │ Fetch for│     │ Extract  │     │ Validate │     │ Transform│     │ Upsert to│
+│  Date   │ ──► │ Date with│ ──► │ Flight   │ ──► │ Required │ ──► │ Nested   │ ──► │ flights  │
+│  Range  │     │Pagination│     │ Records  │     │ Fields   │     │ Fields   │     │ Table    │
+└─────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
+```
+
+1. **Validate Date**: Check if date is within 3-month window
+2. **Fetch**: Call `/flights` endpoint with date parameter and pagination
+3. **Extract**: Process flight records with nested departure/arrival data
+4. **Validate**: Ensure required fields exist (date, status, airline_iata, etc.)
+5. **Transform**: Map API fields to database schema, handling nested structures
+6. **Load**: Upsert to `flights` table with composite key conflict resolution
+
+### Orchestration Strategy
+
+The optimal orchestration strategy for these APIs is:
+
+1. **Initial Load**:
+   - Load airlines and airports data first (reference data)
+   - Load historical flight data (last 3 months) with date prioritization
+   - Store checkpoints after each date processed
+
+2. **Daily Updates**:
+   - Update airlines and airports weekly (reference data changes infrequently)
+   - Fetch new flight data daily for the previous day
+   - Periodically check for gaps in recent flight data
+
+3. **Recovery Process**:
+   - If process fails, resume from last checkpoint
+   - Verify data completeness with record counts by date
+   - Implement retries for failed dates
+
+This strategy ensures efficient data collection while respecting API constraints and maintaining data integrity in PostgreSQL.
 
 ## Implementation Components
 
