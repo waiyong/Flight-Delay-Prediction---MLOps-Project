@@ -186,7 +186,13 @@ def fetch_paginated_data(endpoint: str, date: Optional[str] = None, additional_p
     
     all_results = []
     offset = 0
-    limit = 1000  # Maximum allowed for Basic Plan
+    # limit = 100   # Adjusted based on user's plan limits - This was a general change
+
+    # Set limit based on the endpoint
+    if endpoint == "flights":
+        limit = 100  # Specific limit for the /flights endpoint
+    else:
+        limit = 1000 # Default limit for other endpoints (airlines, airports, routes)
     
     # Prepare parameters
     params = {
@@ -341,8 +347,8 @@ def process_flights_data(flights_data: List[Dict[str, Any]], session) -> int:
 
             # Check for required fields (adjust if your logic requires more/less)
             # Using departure_iata/arrival_iata as potentially more reliable than airline_iata
-            if not all([flight_date, flight_status, departure_iata, arrival_iata]):
-                logger.warning(f"Missing essential fields (date, status, dep_iata, arr_iata) for flight: {flight_record.get('flight', {}).get('iata', 'N/A')}")
+            if not all([flight_date, departure_iata, arrival_iata]):
+                logger.warning(f"Missing essential fields (date, departure_iata, arrival_iata) for flight: {flight_record.get('flight', {}).get('iata', 'N/A')}")
                 continue
 
             # Prepare flight object that matches the model's column names
@@ -557,6 +563,7 @@ def process_routes_data(routes_data: List[Dict[str, Any]], session) -> None:
     """
     processed_count = 0
     skipped_count = 0
+    missing_iata_count = 0
     # Get the current time ONCE for the entire batch, using UTC
     pulled_timestamp = datetime.now(timezone.utc)
 
@@ -573,9 +580,14 @@ def process_routes_data(routes_data: List[Dict[str, Any]], session) -> None:
             departure_iata = departure_data.get("iata")
             arrival_iata = arrival_data.get("iata")
 
+            # Track routes with missing IATA codes
+            if not airline_iata:
+                missing_iata_count += 1
+                logger.info(f"Route with missing airline IATA code: {airline_data.get('name')} ({airline_data.get('icao')}) - Flight {flight_number} from {departure_iata} to {arrival_iata}")
+
             # Skip if essential fields for the unique constraint are missing
-            if not all([airline_iata, flight_number, departure_iata, arrival_iata]):
-                logger.warning(f"Missing required fields (airline_iata, flight_number, dep_iata, arr_iata) for route: {route_record}")
+            if not all([flight_number, departure_iata, arrival_iata]):
+                logger.warning(f"Missing required fields (flight_number, dep_iata, arr_iata) for route: {route_record}")
                 skipped_count += 1
                 continue
 
@@ -620,7 +632,7 @@ def process_routes_data(routes_data: List[Dict[str, Any]], session) -> None:
                 "airline_icao": airline_icao,
 
                 "raw_payload": route_record,
-                "date_pulled": pulled_timestamp # Add the timestamp here
+                "date_pulled": pulled_timestamp
             }
 
             # Upsert route data
@@ -628,7 +640,7 @@ def process_routes_data(routes_data: List[Dict[str, Any]], session) -> None:
             # Ensure index elements match the unique constraint in the model
             stmt = stmt.on_conflict_do_update(
                 index_elements=["airline_iata", "flight_number", "departure_iata", "arrival_iata"],
-                set_=route # Update all fields on conflict, including date_pulled
+                set_=route
             )
 
             session.execute(stmt)
@@ -643,6 +655,7 @@ def process_routes_data(routes_data: List[Dict[str, Any]], session) -> None:
     try:
         session.commit()
         logger.info(f"Processed {processed_count} route records (skipped {skipped_count} due to missing key fields).")
+        logger.info(f"Found {missing_iata_count} routes with missing airline IATA codes.")
     except Exception as e:
         logger.error(f"Error committing routes batch: {str(e)}", exc_info=True)
         session.rollback()

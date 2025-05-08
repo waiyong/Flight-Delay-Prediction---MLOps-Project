@@ -1,266 +1,165 @@
 # Data Processing Pipeline Documentation
 
-## Overview
+## 1. Overview
 
-This document outlines the implementation of the data processing pipeline for the Flight Delay Prediction project. The pipeline is responsible for fetching flight data from the AviationStack API, transforming it, and loading it into the PostgreSQL database.
+This document outlines the implementation of the data processing pipeline for the Flight Delay Prediction project. The pipeline is responsible for fetching aviation data from the AviationStack API, transforming it, and loading it into a PostgreSQL database. It consists of separate ETL scripts for different data entities: Airlines, Airports, Routes, and Flights.
 
-## API Constraints and Solutions
+All scripts utilize common helper functions from `scripts.flight_data_processor` for tasks like API calls with pagination, data transformation, and database interaction.
 
-AviationStack API has the following constraints:
-- Maximum of 100 results per API call (Basic Plan)
-- Maximum of 1000 results per API call (Professional Plan and above)
-- Default limit is 100 results
-- Historical data limited to the last 3 months only
+## 2. Common ETL Components
 
-To overcome these limitations and pull comprehensive flight data, we implement a paginated data fetching strategy.
+### 2.1. Configuration
+-   **Environment Variables**: API keys (`AVIATIONSTACK_API_KEY`) and database connection strings (`DATABASE_URL`) are loaded from a `.env` file using `python-dotenv`.
+-   **Logging**: Centralized logging is configured to output to both the console and a `flight_data_processor.log` file. Each ETL script uses a logger specific to its module.
 
-## Processing Workflow for AviationStack APIs
+### 2.2. API Interaction (`scripts.flight_data_processor.call_aviationstack`)
+-   **Base URL**: `https://api.aviationstack.com/v1/`
+-   **Authentication**: `access_key` (API key) is automatically added to parameters.
+-   **Error Handling**:
+    -   Retries up to `MAX_RETRIES` (currently 3) with exponential backoff (`RETRY_DELAY` seconds).
+    -   Raises HTTP errors for 4xx/5xx responses.
+    -   Parses API-level errors from the JSON response.
+    -   Specific handling for rate limit errors (waits and retries).
+    -   Specific handling for date-related errors (returns an error marker).
 
-AviationStack provides four main APIs that we use in this project. Each has distinct characteristics and processing requirements:
+### 2.3. Paginated Data Fetching (`scripts.flight_data_processor.fetch_paginated_data`)
+-   Handles API pagination by iteratively calling the API with increasing `offset` values.
+-   Uses a `limit` of 1000 records per page (suitable for paid plans).
+-   Collects all results for a given endpoint (or endpoint + date for flights) into a single list in memory before returning.
+-   Includes a 1-second `time.sleep(1)` between paginated calls to respect API rate limits.
+-   For the "flights" endpoint, it can take a `date` parameter to fetch data for a specific day.
+-   Includes a check using `is_date_in_valid_range` for the "flights" endpoint to ensure requested dates are within AviationStack's typical 3-month historical data window.
 
-### API Endpoint Comparison
+### 2.4. Database Interaction (`scripts.flight_data_processor` and individual `process_*_data` functions)
+-   **SQLAlchemy**: Used for ORM and database interaction.
+-   **Session Management**: Each main ETL script creates a SQLAlchemy session.
+-   **Upsert Logic**: Data is inserted into tables using an "upsert" strategy (`INSERT ... ON CONFLICT DO UPDATE`) to handle new records and update existing ones based on defined unique constraints.
+-   **Transaction Management**:
+    -   For Airlines, Airports, and Routes: `session.commit()` is called after processing all records for that entity. If an error occurs during the batch commit, the session is rolled back.
+    -   For Flights: `process_flights_data` commits data after processing all records *for a single day*. This means each day's flight data is a separate transaction.
 
-| API Endpoint | Historical Data | Update Frequency | Primary Key | Data Volume | Key Parameters |
-|--------------|----------------|------------------|-------------|-------------|----------------|
-| `/flights`   | Yes (3 months) | Real-time        | Composite   | Very High   | flight_date, flight_status |
-| `/airlines`  | No             | Rarely changes   | iata_code   | Low         | None (reference data) |
-| `/airports`  | No             | Rarely changes   | iata_code   | Low         | None (reference data) |
-| `/routes`    | No             | Occasionally     | Composite   | Medium      | airline_iata, dep_iata, arr_iata |
+## 3. ETL Pipelines by Data Entity
 
-### Processing Sequence
+The general flow for each ETL script (`run_etl_*.py`) is:
+1.  Load environment variables.
+2.  Establish a database session.
+3.  Call `fetch_paginated_data` for the specific API endpoint.
+4.  Pass the fetched data to a dedicated `process_<entity>_data` function.
+5.  The processing function transforms data and executes upserts.
+6.  Close the database session.
 
-The optimal processing sequence accounts for dependencies between data types:
+---
 
-1. **Reference Data** (Airlines & Airports):
-   - Process first as they change infrequently
-   - Serve as lookups for flight and route data
-   - No date filtering required
+### 3.1. Airlines Data Pipeline
 
-2. **Routes Data**:
-   - Process after reference data
-   - Provides context for flight patterns
-   - No date filtering required
+-   **Script**: `run_etl_airlines_airport.py` (handles both airlines and airports)
+-   **API Endpoint**: `/airlines`
+-   **Processing Function**: `scripts.flight_data_processor.process_airlines_data`
+-   **Database Table**: `airlines` (defined in `scripts.models.Airline`)
 
-3. **Flight Data**:
-   - Process last, with date-based processing
-   - Highest volume that requires pagination
-   - Must operate within 3-month historical window
+#### Flow:
+1.  **Fetch**: `fetch_paginated_data(endpoint="airlines")` retrieves all airline records.
+2.  **Transform & Load (`process_airlines_data`)**:
+    *   Iterates through each airline record.
+    *   **Primary Key**: Uses the `id` field from the API response as the primary key for the `airlines` table. Records missing this API `id` are skipped and logged.
+    *   Extracts relevant fields (e.g., `iata_code`, `icao_code`, `airline_name`, `country_name`, `status`, `type`, `raw_payload`).
+    *   Constructs an `Airline` object.
+    *   Performs an upsert into the `airlines` table. Conflict is checked on the `id` column.
+    *   A single `session.commit()` is called after attempting to process all fetched airline records.
 
-### Step-by-Step Process by API
+#### Nuances:
+-   The `iata_code` is fetched but is not the primary key, as the API's `id` field is used for better uniqueness.
+-   Skipping records if the API `id` is missing is a key data quality step.
 
-#### 1. Airlines API Process
+---
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
-│ Fetch with  │     │ Extract IATA │     │ Transform   │     │ Upsert to  │
-│ Pagination  │ ──► │ Codes & Info │ ──► │ Attributes  │ ──► │ airlines   │
-└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
-```
+### 3.2. Airports Data Pipeline
 
-1. **Fetch**: Call `/airlines` endpoint with pagination until all records retrieved
-2. **Extract**: Process airline records, ensuring IATA code (primary key) exists
-3. **Transform**: Map API fields to database schema
-4. **Load**: Upsert to `airlines` table with conflict resolution on iata_code
+-   **Script**: `run_etl_airlines_airport.py` (handles both airlines and airports)
+-   **API Endpoint**: `/airports`
+-   **Processing Function**: `scripts.flight_data_processor.process_airports_data`
+-   **Database Table**: `airports` (defined in `scripts.models.Airport`)
 
-#### 2. Airports API Process
+#### Flow:
+1.  **Fetch**: `fetch_paginated_data(endpoint="airports")` retrieves all airport records.
+2.  **Transform & Load (`process_airports_data`)**:
+    *   Iterates through each airport record.
+    *   **Primary Key**: Uses `iata_code` from the API response as the primary key. Records missing `iata_code` are skipped and logged.
+    *   Extracts relevant fields (e.g., `airport_name`, `icao_code`, `latitude`, `longitude`, `timezone`, `country_name`, `raw_payload`).
+    *   Constructs an `Airport` object.
+    *   Performs an upsert into the `airports` table. Conflict is checked on the `iata_code` column.
+    *   A single `session.commit()` is called after attempting to process all fetched airport records.
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
-│ Fetch with  │     │ Extract IATA │     │ Transform   │     │ Upsert to  │
-│ Pagination  │ ──► │ Codes & Info │ ──► │ Attributes  │ ──► │ airports   │
-└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
-```
+#### Nuances:
+-   Relies on `iata_code` being present and unique for each airport.
 
-1. **Fetch**: Call `/airports` endpoint with pagination until all records retrieved
-2. **Extract**: Process airport records, ensuring IATA code (primary key) exists
-3. **Transform**: Map API fields to database schema, including geo coordinates
-4. **Load**: Upsert to `airports` table with conflict resolution on iata_code
+---
 
-#### 3. Routes API Process
+### 3.3. Routes Data Pipeline
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────┐
-│ Fetch with  │     │ Validate     │     │ Transform   │     │ Upsert to  │
-│ Pagination  │ ──► │ IATA Codes   │ ──► │ Attributes  │ ──► │ routes     │
-└─────────────┘     └──────────────┘     └─────────────┘     └────────────┘
-```
+-   **Script**: `run_etl_routes.py`
+-   **API Endpoint**: `/routes` (Note: Requires a paid AviationStack plan)
+-   **Processing Function**: `scripts.flight_data_processor.process_routes_data`
+-   **Database Table**: `routes` (defined in `scripts.models.Route`)
 
-1. **Fetch**: Call `/routes` endpoint with pagination until all records retrieved
-2. **Validate**: Ensure airline, departure, and arrival IATA codes exist
-3. **Transform**: Map API fields to database schema
-4. **Load**: Upsert to `routes` table with composite key conflict resolution
+#### Flow:
+1.  **Fetch**: `fetch_paginated_data(endpoint="routes")` retrieves all route records.
+2.  **Transform & Load (`process_routes_data`)**:
+    *   Iterates through each route record.
+    *   A `pulled_timestamp` (UTC) is generated once for the entire batch of routes being processed.
+    *   Extracts `airline_iata`, `flight_number`, `departure_iata`, `arrival_iata` from nested API structures.
+    *   **Data Quality & Skipping**:
+        *   Logs an `INFO` message if `airline_data.get("iata")` is missing/empty, and increments `missing_iata_count`. The record is still processed.
+        *   Logs a `WARNING` and **skips** the record if any of `flight_number`, `departure_data.get("iata")`, or `arrival_data.get("iata")` are missing/empty.
+    *   Extracts other details like airport names, times, airline name, ICAO, etc.
+    *   Constructs a `Route` object, including the `raw_payload` and the common `date_pulled` timestamp.
+    *   Performs an upsert into the `routes` table.
+        *   **Unique Constraint for Upsert**: `UniqueConstraint('airline_iata', 'flight_number', 'departure_iata', 'arrival_iata', name='uix_route_identity')`.
+        *   The `airline_iata` column in the `routes` table is nullable. PostgreSQL's `UniqueConstraint` treats `NULL`s as distinct, so multiple routes can have `NULL` for `airline_iata` and still be inserted if other components differ, or even if they are the same (as `NULL` is not equal to `NULL` for constraint purposes). The `on_conflict_do_update` will effectively update rows where these four components are non-NULL and match an existing record.
+    *   A single `session.commit()` is called after attempting to process all fetched route records. Final counts of processed, skipped, and missing IATA records are logged.
 
-#### 4. Flights API Process (Date-Based)
+#### Nuances:
+-   Requires a paid AviationStack plan for the `/routes` endpoint.
+-   Special handling for missing `airline_iata`: records are ingested with `NULL` `airline_iata` but logged. This is to capture as much data as possible, with the understanding that these specific records might be harder to uniquely identify for updates or may require special handling during analysis/modeling.
+-   Records are strictly skipped if `flight_number`, `departure_iata`, or `arrival_iata` are missing, as these are deemed essential for basic route identification.
+-   The `date_pulled` column indicates when the batch of routes was processed.
 
-```
-┌─────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│ Validate│     │ Fetch for│     │ Extract  │     │ Validate │     │ Transform│     │ Upsert to│
-│  Date   │ ──► │ Date with│ ──► │ Flight   │ ──► │ Required │ ──► │ Nested   │ ──► │ flights  │
-│  Range  │     │Pagination│     │ Records  │     │ Fields   │     │ Fields   │     │ Table    │
-└─────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘     └──────────┘
-```
+---
 
-1. **Validate Date**: Check if date is within 3-month window
-2. **Fetch**: Call `/flights` endpoint with date parameter and pagination
-3. **Extract**: Process flight records with nested departure/arrival data
-4. **Validate**: Ensure required fields exist (date, status, airline_iata, etc.)
-5. **Transform**: Map API fields to database schema, handling nested structures
-6. **Load**: Upsert to `flights` table with composite key conflict resolution
+### 3.4. Flights Data Pipeline
 
-### Orchestration Strategy
+-   **Script**: `run_etl_flights.py`
+-   **API Endpoint**: `/flights`
+-   **Processing Function**: `scripts.flight_data_processor.process_flights_data`
+-   **Database Table**: `flights` (defined in `scripts.models.Flight`)
 
-The optimal orchestration strategy for these APIs is:
+#### Flow:
+1.  **Date Range Calculation**: `run_etl_flights.py` calculates a date range from 14 days ago to the current day. The start and end dates are logged.
+2.  **Iterate by Date**: The script loops through each date in this calculated range.
+3.  **Fetch (per day)**: For each `date_str`:
+    *   `fetch_paginated_data(endpoint="flights", date=date_str)` retrieves all flight records for that specific day.
+4.  **Transform & Load (`process_flights_data`)**:
+    *   This function is called with the flight data for a single day.
+    *   Iterates through each flight record for that day.
+    *   Extracts all relevant fields from the potentially nested API response (departure, arrival, airline, flight, aircraft details, `raw_payload`).
+    *   **Data Quality & Skipping**:
+        *   Logs a `WARNING` and **skips** the record if `flight_date`, `flight_status`, `departure_iata`, or `arrival_iata` are missing/empty. (Based on `process_flights_data` logic: `if not all([flight_date, flight_status, departure_iata, arrival_iata]): ... continue`)
+    *   Constructs a `Flight` object.
+    *   Performs an upsert into the `flights` table.
+        *   **Unique Constraint for Upsert**: `UniqueConstraint('flight_date', 'flight_iata', 'departure_iata', 'arrival_iata', 'departure_scheduled', name='uix_flight_identity')`.
+    *   `session.commit()` is called *within* `process_flights_data` after processing all records for that *single day's batch*. This makes each day's flight data an independent transaction.
 
-1. **Initial Load**:
-   - Load airlines and airports data first (reference data)
-   - Load historical flight data (last 3 months) with date prioritization
-   - Store checkpoints after each date processed
+#### Nuances:
+-   **Date-Iterative Processing**: Unlike other entities, flights are fetched and processed day by day for a specified range.
+-   **Historical Data Limit**: `fetch_paginated_data` includes a check (`is_date_in_valid_range`) to log a warning if a requested date is outside AviationStack's typical 3-month historical data window, and will return an empty list in such cases.
+-   **Transactional Commits per Day**: Each day's flight data is committed separately, which can be beneficial for large volumes as it avoids one massive transaction.
+-   The unique constraint for flights is more complex, including `flight_date`, `flight_iata`, airport IATAs, and `departure_scheduled` time to uniquely identify a flight instance.
 
-2. **Daily Updates**:
-   - Update airlines and airports weekly (reference data changes infrequently)
-   - Fetch new flight data daily for the previous day
-   - Periodically check for gaps in recent flight data
+## 4. Orchestration and Future Considerations
+(This section can remain largely as is, but ensure it aligns with the above details if any specific scheduling or recovery logic has been implemented in `scripts/flight_data_processor.py`'s `main` block or helper functions like `resume_processing`.)
 
-3. **Recovery Process**:
-   - If process fails, resume from last checkpoint
-   - Verify data completeness with record counts by date
-   - Implement retries for failed dates
+- **Initial Load**: Fetch reference data (Airlines, Airports, Routes) first. Then, fetch historical flight data (e.g., last 14 days as per `run_etl_flights.py`, or a wider 3-month window if using `process_available_historical_data` or `process_date_range` from `flight_data_processor.py`).
+- **Daily Updates**: Schedule `run_etl_flights.py` (or `flight_data_processor.py --daily`) to fetch yesterday's flight data. Periodically refresh reference data (Airlines, Airports, Routes) as needed.
+- **Error Handling & Recovery**: Each script has try-except blocks. `flight_data_processor.py` also includes functions for `resume_processing` using a checkpoint file, which is utilized if running it directly with `--resume`.
 
-This strategy ensures efficient data collection while respecting API constraints and maintaining data integrity in PostgreSQL.
-
-## Implementation Components
-
-### 1. Enhanced API Data Fetching with Pagination
-
-#### Pagination Logic
-- Use the `offset` parameter to fetch subsequent batches of data
-- Set the `limit` parameter to the maximum allowed (100 or 1000)
-- Track the `total` value from the pagination object to know when to stop
-- Continue fetching until all data for a given date has been retrieved
-
-```python
-def fetch_paginated_data(endpoint, date, params=None):
-    """
-    Fetch all data for a specific date using pagination
-    
-    Args:
-        endpoint (str): API endpoint (flights, airlines, etc.)
-        date (str): Flight date in YYYY-MM-DD format
-        params (dict): Additional parameters for the API call
-    
-    Returns:
-        list: All data records for the specified date
-    """
-    all_results = []
-    offset = 0
-    limit = 100  # Maximum allowed for Basic Plan
-    
-    # Implementation details...
-    
-    return all_results
-```
-
-#### Date Range Processing
-- Process data for each date in the target range (e.g., 2024-02-01 to 2024-04-30)
-- For each date, fetch all available records using pagination
-- Store the data in the database after all records for a date have been fetched
-
-#### Rate Limiting
-- Implement sleep intervals between API calls
-- Use exponential backoff for error handling
-- Cache responses to avoid duplicate calls
-
-### 2. Data Transformation and Loading
-
-#### Data Extraction and Normalization
-- Parse JSON responses into appropriate data structures
-- Extract relevant fields for each table (Flights, Airlines, Airports, Routes)
-- Handle nested structures like departure/arrival information
-- Apply data type conversions where needed
-
-#### Data Validation
-- Implement validation rules for each data type
-- Check for missing required fields
-- Validate date formats, numeric ranges, etc.
-- Log validation errors for manual review
-
-#### Database Loading
-- Use SQLAlchemy's `insert().on_conflict_do_update()` for upsert operations
-- Implement batch inserts for better performance
-- Ensure transaction management for atomic operations
-
-### 3. Orchestration and Scheduling
-
-#### Workflow Script
-- Main script that orchestrates the entire ETL process
-- Implements checkpointing to resume interrupted runs
-- Comprehensive logging and error handling
-
-#### Scheduling with Airflow/Prefect
-- Set up DAGs for regular data updates
-- Configure incremental data loads
-- Monitoring and notification for pipeline failures
-
-### 4. Testing and Monitoring
-
-#### Testing Framework
-- Unit tests for individual components
-- Integration tests for the entire pipeline
-- Test with small data samples before production runs
-
-#### Monitoring
-- Track API call counts against your quota
-- Monitor database size and growth
-- Set up quality checks to detect data anomalies
-
-## Execution Flow
-
-1. **Initialize**: Set up connections and load configuration
-2. **Process Date Range**: For each date in the range:
-   - Fetch all flight data using pagination
-   - Process and validate the data
-   - Store the data in the database
-   - Log progress and errors
-3. **Finalize**: Clean up resources and generate report
-
-## Example Usage
-
-```python
-from datetime import datetime, timedelta
-from flight_data_processor import process_date_range
-
-# Define date range
-start_date = datetime(2024, 2, 1)
-end_date = datetime(2024, 4, 30)
-
-# Process all dates in the range
-process_date_range(start_date, end_date)
-```
-
-## Error Handling
-
-- **API Errors**: Implement retry logic with exponential backoff
-- **Data Validation Errors**: Log errors and continue with valid records
-- **Database Errors**: Implement transaction rollback and retry
-
-## Performance Considerations
-
-- Use bulk inserts to minimize database operations
-- Consider parallel processing for different dates
-- Implement caching to avoid redundant API calls
-- Checkpoint progress to enable resuming after interruptions
-
-## Maintenance
-
-Regular maintenance tasks include:
-- Monitoring API usage against quota limits
-- Validating data quality and completeness
-- Updating the pipeline for changes in the API
-- Optimizing database performance
-
-## Future Enhancements
-
-- Implement real-time data processing
-- Add support for additional AviationStack endpoints
-- Enhance validation rules and data quality metrics
-- Scale with distributed processing for larger data volumes 
+This updated structure should provide a clear and accurate overview of your data processing pipelines. 

@@ -61,7 +61,7 @@ This project implements a comprehensive MLOps stack with the following tools:
 ### Data Engineering & Pipeline Orchestration
 - **PostgreSQL**: Database for structured storage
 - **Docker**: Containerization of database and services
-- **Prefect/Airflow**: Workflow orchestration and scheduling
+- **Metaflow**: Workflow orchestration and scheduling
 - **DVC**: Data version control
 
 ### Model Development & Experiment Tracking
@@ -106,7 +106,16 @@ AVIATIONSTACK_API_KEY=your_api_key_here
 docker-compose up -d
 ```
 
-4. Run the data ingestion script
+4. Accessing the Database with Adminer (Optional)
+This project includes Adminer, a web-based database management tool. Once Docker Compose is running, you can access Adminer in your web browser:
+- URL: http://localhost:8080
+- System: PostgreSQL
+- Server: `postgres` (this is the service name defined in `docker-compose.yml`)
+- Username: `silverlineage` (from `docker-compose.yml`)
+- Password: `Fusion199!` (from `docker-compose.yml`)
+- Database: `flight_db` (from `docker-compose.yml`)
+
+5. Run the data ingestion script
 ```
 python scripts/ingest_data.py
 ```
@@ -128,6 +137,86 @@ python scripts/ingest_data.py
 ## Data Source
 
 This project uses the [AviationStack API](https://aviationstack.com/documentation) to fetch real-time and historical flight data. The API provides comprehensive aviation data including flights, airlines, airports, and routes information.
+
+## Data Relationships and Temporal Considerations
+
+### Dataset Characteristics
+
+1. **Airports and Airlines Data**
+   - Static reference data that changes infrequently
+   - Safe to use for joins and lookups
+   - Primary keys: `iata_code` for both tables
+
+2. **Routes Data**
+   - Represents current/planned flight schedules
+   - Refreshed daily via AviationStack API
+   - Contains typical/planned schedule information
+   - Primary key: combination of `airline_iata`, `flight_number`, `departure_iata`, `arrival_iata`
+   - Includes `date_pulled` timestamp to track data freshness
+
+3. **Flights Data**
+   - Historical and real-time operational data
+   - Contains actual flight instances with specific dates and times
+   - Rich in operational details (delays, actual times, gates, etc.)
+   - Each record represents a unique flight occurrence
+
+### Data Relationship Challenges
+
+When working with these datasets, particularly when joining Flights data with Routes data, consider the following:
+
+1. **Temporal Mismatch**
+   - Routes data represents current schedules
+   - Flights data contains historical records
+   - Direct joins between historical flights and current routes may lead to:
+     - Missing matches (discontinued routes)
+     - Incorrect schedule information (changed schedules)
+
+2. **Recommended Join Strategies**
+
+   a. **Primary Approach: Use Flight Data as Source of Truth**
+   - Rely on operational details within the flights record
+   - Use for analysis of specific flight instances
+   - Most accurate for historical analysis
+
+   b. **Static Joins (Recommended)**
+   - Join flights to airlines and airports tables
+   - Provides stable enrichment data
+   - Example joins:
+     ```sql
+     flights.airline_iata -> airlines.iata_code
+     flights.departure_iata -> airports.iata_code
+     flights.arrival_iata -> airports.iata_code
+     ```
+
+   c. **Current Context Joins (Use with Caution)**
+   - LEFT JOIN flights to routes using current snapshot
+   - Useful for understanding current route status
+   - Must be interpreted carefully
+   - High chance of nulls for older flights
+
+3. **Best Practices**
+   - Use flights data as primary source for historical analysis
+   - Join to static reference data (airports, airlines) for enrichment
+   - Be cautious when joining to routes data
+   - Consider the temporal context of your analysis
+   - Document any assumptions about data relationships
+
+### Example Use Cases
+
+1. **Historical Flight Analysis**
+   - Use flights data directly
+   - Join to airports/airlines for context
+   - Avoid routes joins unless specifically needed
+
+2. **Current Route Status**
+   - Use routes data directly
+   - Join to airports/airlines for context
+   - Consider date_pulled for data freshness
+
+3. **Route Evolution Analysis**
+   - Would require historical routes snapshots
+   - Complex to implement
+   - Consider if this level of detail is necessary
 
 ## Contributing
 

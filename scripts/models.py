@@ -14,7 +14,7 @@ class Flight(Base):
 
     # Flight info
     flight_date          = Column(Date, nullable=False)  
-    flight_status        = Column(String(50), nullable=False)  # scheduled, active, landed, cancelled, incident, diverted
+    flight_status        = Column(String(50), nullable=True)  # scheduled, active, landed, cancelled, incident, diverted
     # Departure info
     departure_airport    = Column(String(255), nullable=True)
     departure_timezone   = Column(String(50), nullable=True)
