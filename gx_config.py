@@ -1,0 +1,5 @@
+CONTEXT_ROOT_DIR = "/Users/danielmak/Documents/MLOps_project/gx"
+DATASOURCE_NAME = "flight_data"
+ASSET_TO_VALIDATE = "routes"
+EXPECTATION_SUITE_NAME = "routes_suite_v1"
+CHECKPOINT_NAME = f"{ASSET_TO_VALIDATE}_validation_checkpoint" 

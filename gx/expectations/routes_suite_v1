@@ -1,0 +1,99 @@
+{
+  "data_asset_type": null,
+  "expectation_suite_name": "default",
+  "expectations": [
+    {
+      "expectation_type": "expect_table_columns_to_match_set",
+      "kwargs": {
+        "column_set": [
+          "id",
+          "raw_payload",
+          "date_pulled",
+          "departure_iata",
+          "arrival_iata",
+          "departure_airport",
+          "departure_timezone",
+          "departure_icao",
+          "departure_terminal",
+          "departure_time",
+          "arrival_airport",
+          "arrival_timezone",
+          "arrival_icao",
+          "arrival_terminal",
+          "arrival_time",
+          "airline_name",
+          "airline_callsign",
+          "airline_icao",
+          "airline_iata",
+          "flight_number"
+        ],
+        "exact_match": true
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "departure_iata",
+        "mostly": 0.95
+      },
+      "meta": {
+        "notes": "departure_iata is missing in 5% of the rows"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "arrival_iata",
+        "mostly": 0.95
+      },
+      "meta": {
+        "notes": "arrival_iata is missing in 5% of the rows"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "departure_icao",
+        "mostly": 0.95
+      },
+      "meta": {
+        "notes": "departure_icao is missing in 5% of the rows"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "arrival_icao",
+        "mostly": 0.95
+      },
+      "meta": {
+        "notes": "arrival_icao is missing in 5% of the rows"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "airline_iata",
+        "mostly": 0.95
+      },
+      "meta": {
+        "notes": "airline_iata is missing in 5% of the rows"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "departure_timezone",
+        "mostly": 0.95
+      },
+      "meta": {
+        "notes": "departure_timezone is missing in 5% of the rows"
+      }
+    }
+  ],
+  "ge_cloud_id": null,
+  "meta": {
+    "great_expectations_version": "0.18.15"
+  }
+}
